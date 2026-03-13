@@ -316,9 +316,6 @@ def sort_tasks_by_age(tasks: list[Task], reverse: bool = False) -> list[Task]:
     return sorted(tasks, key=lambda t: t.created_at or datetime.min, reverse=reverse)
 
 
-# =============================================================================
-# КЛАСС ДЛЯ КОЛЛЕКЦИИ ЗАДАЧ (опционально, для удобства)
-# =============================================================================
 
 class TaskCollection:
     """
@@ -385,92 +382,3 @@ class TaskCollection:
         return task_id in self._tasks_by_id
 
 
-# =============================================================================
-# ТЕСТОВЫЙ ЗАПУСК (для демонстрации)
-# =============================================================================
-
-if __name__ == "__main__":
-    print("=" * 70)
-    print("ДЕМОНСТРАЦИЯ РАБОТЫ МОДЕЛИ TASK")
-    print("=" * 70)
-    
-    # Создание задач разными способами
-    print("\n1. СОЗДАНИЕ ЗАДАЧ:")
-    print("-" * 50)
-    
-    task1 = Task(
-        id=1,
-        description="Сдать лабораторную работу по Python",
-        priority=TaskPriority.HIGH,
-        tags=["учеба", "python", "срочно"],
-        metadata={"source": "manual", "author": "student"}
-    )
-    print(f"task1: {task1}")
-    
-    task2 = create_task(
-        id=2,
-        description="Купить продукты на неделю",
-        priority=TaskPriority.MEDIUM,
-        tags=["дом", "покупки"]
-    )
-    print(f"task2: {task2}")
-    
-    task3 = Task.from_dict({
-        "id": 3,
-        "description": "Позвонить родителям",
-        "priority": 2,  # MEDIUM
-        "status": 1,    # PENDING
-        "tags": ["семья"]
-    })
-    print(f"task3: {task3}")
-    
-    # Демонстрация свойств
-    print("\n2. СВОЙСТВА ЗАДАЧ:")
-    print("-" * 50)
-    print(f"task1 завершена? {task1.is_completed}")
-    print(f"task1 ожидает? {task1.is_pending}")
-    print(f"Возраст task1: {task1.age_seconds:.1f} сек")
-    
-    # Сериализация
-    print("\n3. СЕРИАЛИЗАЦИЯ:")
-    print("-" * 50)
-    task_dict = task1.to_dict()
-    print(f"Как словарь: {task_dict}")
-    print(f"Как JSON: {task1.to_json()}")
-    
-    # Восстановление из JSON
-    task1_restored = Task.from_json(task1.to_json())
-    print(f"Восстановлен: {task1_restored}")
-    print(f"Равны? {task1 == task1_restored}")
-    
-    # Работа с коллекцией
-    print("\n4. КОЛЛЕКЦИЯ ЗАДАЧ:")
-    print("-" * 50)
-    collection = TaskCollection([task1, task2])
-    collection.add(task3)
-    
-    print(f"Всего задач: {len(collection)}")
-    print("Задачи с высоким приоритетом:")
-    high_priority = collection.filter(priority=TaskPriority.HIGH)
-    for task in high_priority:
-        print(f"  - {task}")
-    
-    # Фильтрация и сортировка
-    print("\n5. ФИЛЬТРАЦИЯ И СОРТИРОВКА:")
-    print("-" * 50)
-    all_tasks = [task1, task2, task3]
-    
-    print("По приоритету (убывание):")
-    for task in sort_tasks_by_priority(all_tasks, reverse=True):
-        print(f"  - {task.priority.name}: {task.description[:30]}...")
-    
-    print("\n" + "=" * 70)
-    print("ИТОГ: МОДЕЛЬ TASK ГОТОВА К ИСПОЛЬЗОВАНИЮ")
-    print("=" * 70)
-    print("""
-    ✓ Task - dataclass с полной типизацией
-    ✓ Поддержка сериализации в/из JSON
-    ✓ Валидация данных при создании
-    ✓ Удобные методы фильтрации и сортировки
-    ✓ Совместимость со всеми источниками задач
-    """)
