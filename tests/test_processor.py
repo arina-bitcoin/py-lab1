@@ -184,3 +184,27 @@ def test_log_failure_called_on_task_processing_error(monkeypatch):
     assert stats["failed_tasks"] == 1
     assert stats["processed_tasks"] == 0
 
+
+def test_process_source_generic_exception_in_task(monkeypatch):
+    """При любом другом исключении в обработке задачи вызывается logger.exception, failed += 1."""
+    task = Task(id=1, description="x")
+    processor = TaskProcessor("gen_err")
+
+    def _process_raise(_t: Task) -> None:
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(processor, "_process_single_task", _process_raise)
+    stats = processor.process_source(GoodSource([task]))
+    assert stats["failed_tasks"] == 1
+    assert stats["processed_tasks"] == 0
+
+
+def test_print_report_empty_history(capsys):
+    """print_report при пустой истории не падает."""
+    processor = TaskProcessor("nohistory")
+    processor.print_report()
+    out = capsys.readouterr().out
+    assert "ОТЧЕТ ПРОЦЕССОРА" in out
+    assert "nohistory" in out
+    assert "Всего обработано" in out
+
