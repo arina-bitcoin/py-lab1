@@ -4,6 +4,9 @@ from datetime import datetime
 import json
 from enum import IntEnum
 
+from src.utils.logger_config import get_logger
+
+logger = get_logger(__name__)
 
 class TaskPriority(IntEnum):
     LOW = 1
@@ -59,32 +62,32 @@ class Task:
     status: TaskStatus = TaskStatus.PENDING
     data: Optional[Any] = None
     tags: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
     
     def __post_init__(self):
-        """
-        Инициализация после создания объекта.
-        dataclass вызывает этот метод после __init__.
-        Здесь мы устанавливаем время создания, если оно не было указано.
-        Также можно выполнять валидацию данных.
-        """
         self._init_defaults()
         self._validate()
+        logger.debug(f"Task created: {self}")
 
     def _init_defaults(self):
         if self.created_at is None:
             self.created_at = datetime.now()
+            logger.debug(f"Created_at set to default: {self.created_at}")
             
         if not isinstance(self.priority, TaskPriority):
             try:
+                original = self.priority
                 self.priority = TaskPriority(self.priority)
+                logger.debug(f"Priority converted from {original} to {self.priority}")
             except (ValueError, TypeError):
-                pass
+                logger.debug(f"Status converted from {original} to {self.status}")
         
         if not isinstance(self.status, TaskStatus):
             try:
+                original = self.status
                 self.status = TaskStatus(self.status)
             except (ValueError, TypeError):
-                pass
+                logger.warning(f"Invalid status value: {self.status}, keeping as is")
     
     def _validate(self) -> None:
         """
@@ -94,36 +97,44 @@ class Task:
             ValueError: Если данные некорректны
         """
         if self.id < 0:
+            logger.error(f"Invalid task ID: {self.id} (negative)")
             raise ValueError(f"ID задачи не может быть отрицательным: {self.id}")
         
         if not self.description or not self.description.strip():
+            logger.error(f"Empty description for task {self.id}")
             raise ValueError("Описание задачи не может быть пустым")
         
         if not isinstance(self.priority, TaskPriority):
             try:
                 self.priority = TaskPriority(self.priority)
+                logger.debug(f"Priority auto-converted to {self.priority}")
             except (ValueError, TypeError):
+                logger.error(f"Invalid priority type/value: {self.priority} (type: {type(self.priority).__name__})")
                 raise ValueError(f"Некорректный приоритет: {self.priority}")
         
         if not isinstance(self.status, TaskStatus):
             try:
                 self.status = TaskStatus(self.status)
+                logger.debug(f"Status auto-converted to {self.status}")
             except (ValueError, TypeError):
+                logger.error(f"Invalid status type/value: {self.status} (type: {type(self.status).__name__})")
                 raise ValueError(f"Некорректный статус: {self.status}")
             
-    def __setattr__(self, name, value):
-        """Переопределение для валидации при изменении атрибутов"""
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Переопределение для валидации при изменении атрибутов."""
+        old_value = getattr(self, name, None)
         super().__setattr__(name, value)
-        
-        # Валидируем после изменения, если объект уже инициализирован
-        if hasattr(self, 'id'):  # Проверяем, что объект уже создан
+        # Валидируем только после полной инициализации (есть id и description),
+        # иначе при установке id в __init__ ещё нет description и _validate() падает.
+        if name in ('id', 'description', 'priority', 'status') and 'description' in self.__dict__:
             try:
-                if name in ['id', 'description', 'priority', 'status']:
-                    self._validate()
+                self._validate()
+                if old_value != value:
+                    logger.debug(f"Task.{name} changed: {old_value} -> {value}")
             except (ValueError, TypeError) as e:
-                # Откатываем изменение в случае ошибки
-                super().__setattr__(name, getattr(self, f'_{name}_old', None))
-                raise e
+                logger.warning(f"Validation failed for {name}={value}, rolling back: {e}")
+                super().__setattr__(name, old_value)
+                raise
     
     @property
     def is_completed(self) -> bool:
@@ -150,7 +161,7 @@ class Task:
         Используется для сериализации в JSON, сохранения в БД и т.д.
         
         Returns:
-            Dict[str, Any]: Словарь с данными задачи
+            dict[str, Any]: Словарь с данными задачи
         """
         result = asdict(self)
         # Преобразуем специальные типы в сериализуемые
@@ -231,90 +242,10 @@ class Task:
         """Сравнение задач (по ID и времени создания)."""
         if not isinstance(other, Task):
             return False
-        return self.id == other.id and self.created_at == other.created_at
-
-
-def create_task(
-    id: int,
-    description: str,
-    priority: TaskPriority = TaskPriority.LOW,
-    **kwargs
-) -> Task:
-    """
-    Удобная функция для создания задачи (фабрика).
-    
-    Args:
-        id: ID задачи
-        description: Описание
-        priority: Приоритет
-        **kwargs: Дополнительные аргументы для Task
-        
-    Returns:
-        Task: Созданная задача
-    """
-    return Task(
-        id=id,
-        description=description,
-        priority=priority,
-        **kwargs
-    )
-
-
-def filter_tasks_by_priority(tasks: list[Task], min_priority: TaskPriority) -> list[Task]:
-    """
-    Отфильтровать задачи по минимальному приоритету.
-    
-    Args:
-        tasks: Список задач
-        min_priority: Минимальный приоритет
-        
-    Returns:
-        List[Task]: Задачи с приоритетом >= min_priority
-    """
-    return [task for task in tasks if task.priority.value >= min_priority.value]
-
-
-def filter_tasks_by_status(tasks: list[Task], status: TaskStatus) -> list[Task]:
-    """
-    Отфильтровать задачи по статусу.
-    
-    Args:
-        tasks: Список задач
-        status: Статус для фильтрации
-        
-    Returns:
-        List[Task]: Задачи с указанным статусом
-    """
-    return [task for task in tasks if task.status == status]
-
-
-def sort_tasks_by_priority(tasks: list[Task], reverse: bool = False) -> list[Task]:
-    """
-    Отсортировать задачи по приоритету.
-    
-    Args:
-        tasks: Список задач
-        reverse: Сортировать по убыванию?
-        
-    Returns:
-        List[Task]: Отсортированный список
-    """
-    return sorted(tasks, key=lambda t: t.priority.value, reverse=reverse)
-
-
-def sort_tasks_by_age(tasks: list[Task], reverse: bool = False) -> list[Task]:
-    """
-    Отсортировать задачи по возрасту (самые старые первые).
-    
-    Args:
-        tasks: Список задач
-        reverse: Сортировать по убыванию?
-        
-    Returns:
-        List[Task]: Отсортированный список
-    """
-    return sorted(tasks, key=lambda t: t.created_at or datetime.min, reverse=reverse)
-
+        result = self.id == other.id and self.created_at == other.created_at
+        un = '' if result else "un"
+        logger.debug(f"Task {self.id} {un}equals task {other.id}")
+        return result
 
 
 class TaskCollection:

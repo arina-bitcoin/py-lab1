@@ -1,19 +1,16 @@
 from typing import Iterable, Optional, Any, Callable
 from datetime import datetime
-import logging
 from functools import wraps
+
 from src.contracts import TaskSource, assert_is_task_source
 from src.models import Task, TaskStatus, TaskPriority
+from src.utils.logger_config import get_logger
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
-def log_processing(func: Callable) -> Callable:
+def log_processing(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Декоратор для логирования процесса обработки задач.
     
@@ -24,7 +21,7 @@ def log_processing(func: Callable) -> Callable:
         Callable: Функция с логированием
     """
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         logger.info(f"Начало обработки: {func.__name__}")
         start_time = datetime.now()
         
@@ -38,7 +35,7 @@ def log_processing(func: Callable) -> Callable:
     return wrapper
 
 
-def validate_source(func: Callable) -> Callable:
+def validate_source(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Декоратор для проверки соответствия источника контракту.
     
@@ -49,7 +46,7 @@ def validate_source(func: Callable) -> Callable:
         Callable: Функция с проверкой источника
     """
     @wraps(func)
-    def wrapper(self, source: TaskSource, *args, **kwargs):
+    def wrapper(self, source: TaskSource, *args: Any, **kwargs: Any) -> Any:
         # Проверка контракта в рантайме!
         assert_is_task_source(
             source, 
@@ -218,9 +215,14 @@ class TaskProcessor:
             # Вызываем обработчики в зависимости от приоритета
             self._apply_handlers(task)
             
-            # Базовая "обработка" - просто выводим информацию
+            # Базовая "обработка" - логируем информацию о задаче
             # В реальной системе здесь могла бы быть сложная логика
-            print(f"Задача {task.id} [{task.priority.name}]: {task.description}")
+            logger.info(
+                "Обработка задачи %s [%s]: %s",
+                task.id,
+                task.priority.name,
+                task.description,
+            )
             
             # Помечаем задачу как выполненную
             task.status = TaskStatus.COMPLETED
@@ -367,9 +369,9 @@ class TaskProcessor:
         
         stats = self.get_statistics()
         print(f"Всего обработано задач: {stats['total_processed']}")
-        print(f"  ✓ Успешно: {stats['successful']}")
-        print(f"  ✗ С ошибками: {stats['failed']}")
-        print(f"  Процент успеха: {stats['success_rate']:.1f}%")
+        print(f"Успешно: {stats['successful']}")
+        print(f" С ошибками: {stats['failed']}")
+        print(f" Процент успеха: {stats['success_rate']:.1f}%")
         
         if self.processing_history:
             print(f"\nПоследние 3 обработки:")
@@ -377,8 +379,6 @@ class TaskProcessor:
                 print(f"  {i+1}. {proc['source_type']}: "
                       f"{proc['processed_tasks']}/{proc['total_tasks']} "
                       f"({proc['success_rate']:.0f}%)")
-        
-        print("=" * 60)
 
 
 
@@ -389,7 +389,10 @@ def high_priority_handler(task: Task) -> None:
     Args:
         task: Задача для обработки
     """
-    print(f"ВЫСОКИЙ ПРИОРИТЕТ: задача {task.id} требует немедленного внимания!")
+    logger.warning(
+        "ВЫСОКИЙ ПРИОРИТЕТ: задача %s требует немедленного внимания!",
+        task.id,
+    )
     # Здесь могла бы быть отправка уведомления, эскалация и т.д.
 
 
@@ -400,7 +403,10 @@ def critical_priority_handler(task: Task) -> None:
     Args:
         task: Задача для обработки
     """
-    print(f"КРИТИЧЕСКАЯ ЗАДАЧА {task.id}: отправка оповещения администратору!")
+    logger.error(
+        "КРИТИЧЕСКАЯ ЗАДАЧА %s: отправка оповещения администратору!",
+        task.id,
+    )
 
 
 def log_handler(task: Task) -> None:
@@ -424,9 +430,9 @@ def process_multiple_sources(processor: TaskProcessor, sources: list[TaskSource]
     Returns:
         List[dict[str, Any]]: Список результатов обработки
     """
-    results = []
+    results: list[dict[str, Any]] = []
     for i, source in enumerate(sources):
-        print(f"\nОбработка источника {i+1}/{len(sources)}")
+        logger.info("Обработка источника %s/%s (%s)", i + 1, len(sources), type(source).__name__)
         try:
             result = processor.process_source(source)
             results.append(result)

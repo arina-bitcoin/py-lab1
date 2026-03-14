@@ -1,6 +1,6 @@
 
 from typing import Protocol, runtime_checkable, Iterable, Optional, Any
-from models import Task
+from src.models import Task
 
 
 @runtime_checkable
