@@ -5,3 +5,7 @@ testmodel.py
 ".coveragerc" 
 "pytest.ini" 
 ".venv/" 
+".coverage" 
+".coveragerc" 
+"pytest.ini" 
+".venv/" 
