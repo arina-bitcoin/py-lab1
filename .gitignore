@@ -1,3 +1,7 @@
 ffff.py
 testmodel.py
-.venv
+.venv".venv/" 
+".coverage" 
+".coveragerc" 
+"pytest.ini" 
+".venv/" 
