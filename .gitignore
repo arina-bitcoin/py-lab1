@@ -46,6 +46,5 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# === Учебные/черновые файлы (не в репозитории) ===
 ffff.py
 testmodel.py
