@@ -1,7 +1,7 @@
 from pathlib import Path
 import json
 
-from src.sources.file_sourse import FileTaskSource
+from src.sources.file_source import FileTaskSource
 from src.sources.api_source import ApiTaskSource
 from src.sources.generator_source import GeneratorTaskSource
 from src.models import Task

@@ -154,4 +154,12 @@ def test_task_collection_remove_missing_raises():
     with pytest.raises(KeyError):
         coll.remove(999)
 
+def test_task_age_formatted(monkeypatch):
+    from datetime import datetime, timedelta
+    task = Task(id=1, description="test")
+    fake_now = datetime.now() + timedelta(seconds=30)
+    monkeypatch.setattr("src.models.datetime", lambda: fake_now)  # осторожно с monkeypatch
+    # Лучше замокать datetime.now через свободную функцию, но для простоты можно проверить возраст >0
+    assert "сек" in task.age_formatted or "мин" in task.age_formatted
+
 

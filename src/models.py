@@ -1,315 +1,342 @@
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Any
 from datetime import datetime
-import json
+from typing import Optional, Any
 from enum import IntEnum
+import json
 
+from src.descriptors import (
+    ReadOnlyIdDescriptor,
+    ValidatedPriorityDescriptor,
+    ValidatedStatusDescriptor,
+    NonDataDescriptionDescriptor,
+)
+from src.exceptions import (
+    InvalidPriorityError,
+    InvalidStatusError,
+    EmptyDescriptionError,
+    InvalidTaskIdError,   
+)
 from src.utils.logger_config import get_logger
 
 logger = get_logger(__name__)
+
 
 class TaskPriority(IntEnum):
     LOW = 1
     MEDIUM = 2
     HIGH = 3
     CRITICAL = 4
-    
+
     def __str__(self) -> str:
         return self.name.title()
 
 
 class TaskStatus(IntEnum):
-    PENDING = 1     
-    IN_PROGRESS = 2  
-    COMPLETED = 3   
-    FAILED = 4      
-    CANCELLED = 5    
-    
-    def __str__(self) -> str: #чтоб если что прочитать можно было 
+    PENDING = 1
+    IN_PROGRESS = 2
+    COMPLETED = 3
+    FAILED = 4
+    CANCELLED = 5
+
+    def __str__(self) -> str:
         return self.name.replace('_', ' ').title()
 
-@dataclass
+
 class Task:
     """
-    Модель данных, представляющая задачу в системе.
-    
-    Это центральная модель данных, которую используют все компоненты системы:
-    - Источники задач (FileSource, ApiSource, GeneratorSource) создают задачи
-    - Процессор (TaskProcessor) обрабатывает задачи
-    - Тесты проверяют корректность создания и обработки задач
-    
-    Использование dataclass дает множество преимуществ:
-    - Автоматическая генерация __init__, __repr__, __eq__
-    - Явное определение полей с типами
-    - Возможность задавать значения по умолчанию
-    - Поддержка неизменяемости (frozen=True) при необходимости
-    
-    Атрибуты:
-        id: Уникальный идентификатор задачи
-        description: Описание задачи (что нужно сделать)
-        created_at: Время создания задачи (автоматически устанавливается текущее)
-        priority: Приоритет задачи (по умолчанию LOW)
-        status: Статус выполнения (по умолчанию PENDING)
-        data: Дополнительные данные задачи (может быть любым типом)
-        tags: Теги для категоризации задач
+    Модель задачи с использованием data и non-data дескрипторов.
+    - id, priority, status — data дескрипторы (есть __set__)
+    - description — non-data дескриптор (нет __set__)
     """
-    
-    id: int
-    description: str
-    
-    created_at: Optional[datetime] = None
-    priority: TaskPriority = TaskPriority.LOW
-    status: TaskStatus = TaskStatus.PENDING
-    data: Optional[Any] = None
-    tags: list[str] = field(default_factory=list)
-    metadata: dict[str, Any] = field(default_factory=dict)
-    
-    def __post_init__(self):
-        self._init_defaults()
-        self._validate()
-        logger.debug(f"Task created: {self}")
 
-    def _init_defaults(self):
-        if self.created_at is None:
-            self.created_at = datetime.now()
-            logger.debug(f"Created_at set to default: {self.created_at}")
-            
-        if not isinstance(self.priority, TaskPriority):
-            try:
-                original = self.priority
-                self.priority = TaskPriority(self.priority)
-                logger.debug(f"Priority converted from {original} to {self.priority}")
-            except (ValueError, TypeError):
-                logger.debug(f"Status converted from {original} to {self.status}")
-        
-        if not isinstance(self.status, TaskStatus):
-            try:
-                original = self.status
-                self.status = TaskStatus(self.status)
-            except (ValueError, TypeError):
-                logger.warning(f"Invalid status value: {self.status}, keeping as is")
-    
-    def _validate(self) -> None:
+    id = ReadOnlyIdDescriptor()
+    priority = ValidatedPriorityDescriptor()
+    status = ValidatedStatusDescriptor()
+    description = NonDataDescriptionDescriptor()
+
+    def __init__(
+        self,
+        id: int,
+        description: str,
+        priority: TaskPriority = TaskPriority.LOW,
+        status: TaskStatus = TaskStatus.PENDING,
+        created_at: Optional[datetime] = None,
+        tags: Optional[list[str]] = None,
+        metadata: Optional[dict[str, Any]] = None
+    ):
+        # Валидация описания (вызывается до установки)
+        self._validate_description(description)
+
+        # Установка через data-дескрипторы с обработкой ошибок
+        try:
+            self.id = id
+        except InvalidTaskIdError as e:
+            logger.error(f"Ошибка создания задачи: {e}")
+            raise
+
+        try:
+            self.priority = priority
+        except InvalidPriorityError as e:
+            logger.error(f"Некорректный приоритет {priority}: {e}")
+            raise
+
+        try:
+            self.status = status
+        except InvalidStatusError as e:
+            logger.error(f"Некорректный статус {status}: {e}")
+            raise
+
+        # Установка description через non-data дескриптор:
+        # создаётся атрибут экземпляра, который перекрывает дескриптор
+        self.description = description
+        # Для внутреннего использования (если дескриптор не найдёт атрибут)
+        self._description = description
+
+        self.created_at = created_at or datetime.now()
+        self.tags = tags or []
+        self.metadata = metadata or {}
+
+        logger.debug(f"Задача создана: id={self.id}, описание={description[:30]}...")
+
+    def _validate_description(self, description: str) -> None:
+        if not description or not isinstance(description, str):
+            raise EmptyDescriptionError(f"Описание не может быть пустым. Получено: {description}")
+        if not description.strip():
+            raise EmptyDescriptionError("Описание не может состоять только из пробелов")
+
+    @property
+    def task_priority(self) -> TaskPriority:
+        """Геттер для приоритета (демонстрация работы дескриптора)."""
+        return self.priority
+
+    @task_priority.setter
+    def task_priority(self, value: TaskPriority) -> None:
+        """Сеттер, использующий data-дескриптор priority."""
+        try:
+            self.priority = value
+            logger.info(f"Приоритет задачи {self.id} изменён на {value.name}")
+        except InvalidPriorityError as e:
+            logger.error(f"Не удалось изменить приоритет: {e}")
+            raise
+
+    @property
+    def task_status(self) -> TaskStatus:
+        return self.status
+
+    @task_status.setter
+    def task_status(self, value: TaskStatus) -> None:
+        try:
+            self.status = value
+            logger.info(f"Статус задачи {self.id} изменён на {value.name}")
+        except InvalidStatusError as e:
+            logger.error(f"Не удалось изменить статус: {e}")
+            raise
+
+    def update_description(self, new_description: str, force_instance_attr: bool = True) -> None:
         """
-        Внутренняя валидация данных задачи.
-        
-        Raises:
-            ValueError: Если данные некорректны
+        Обновляет описание задачи, демонстрируя работу non-data дескриптора.
+        Если force_instance_attr=True (по умолчанию) — создаётся атрибут экземпляра,
+        который перекрывает дескриптор. Если False — удаляет атрибут экземпляра,
+        чтобы дескриптор вернул значение из хранилища (self._description).
         """
-        if self.id < 0:
-            logger.error(f"Invalid task ID: {self.id} (negative)")
-            raise ValueError(f"ID задачи не может быть отрицательным: {self.id}")
-        
-        if not self.description or not self.description.strip():
-            logger.error(f"Empty description for task {self.id}")
-            raise ValueError("Описание задачи не может быть пустым")
-        
-        if not isinstance(self.priority, TaskPriority):
-            try:
-                self.priority = TaskPriority(self.priority)
-                logger.debug(f"Priority auto-converted to {self.priority}")
-            except (ValueError, TypeError):
-                logger.error(f"Invalid priority type/value: {self.priority} (type: {type(self.priority).__name__})")
-                raise ValueError(f"Некорректный приоритет: {self.priority}")
-        
-        if not isinstance(self.status, TaskStatus):
-            try:
-                self.status = TaskStatus(self.status)
-                logger.debug(f"Status auto-converted to {self.status}")
-            except (ValueError, TypeError):
-                logger.error(f"Invalid status type/value: {self.status} (type: {type(self.status).__name__})")
-                raise ValueError(f"Некорректный статус: {self.status}")
-            
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Переопределение для валидации при изменении атрибутов."""
-        old_value = getattr(self, name, None)
-        super().__setattr__(name, value)
-        # Валидируем только после полной инициализации (есть id и description),
-        # иначе при установке id в __init__ ещё нет description и _validate() падает.
-        if name in ('id', 'description', 'priority', 'status') and 'description' in self.__dict__:
-            try:
-                self._validate()
-                if old_value != value:
-                    logger.debug(f"Task.{name} changed: {old_value} -> {value}")
-            except (ValueError, TypeError) as e:
-                logger.warning(f"Validation failed for {name}={value}, rolling back: {e}")
-                super().__setattr__(name, old_value)
-                raise
-    
+        self._validate_description(new_description)
+        if force_instance_attr:
+            self.description = new_description
+            logger.debug(f"Описание задачи {self.id} переопределено в экземпляре")
+        else:
+            if 'description' in self.__dict__:
+                del self.description   # удаляем атрибут экземпляра
+            self._description = new_description
+            logger.debug(f"Описание задачи {self.id} сохранено через дескриптор")
+
+    def _get_description_value(self) -> str:
+        """
+        Возвращает актуальное описание с учётом возможного переопределения.
+        Используется для сериализации.
+        """
+        if 'description' in self.__dict__:
+            return self.__dict__['description']
+        return getattr(self, '_description', '')
+
+
     @property
     def is_completed(self) -> bool:
-        """Проверка, завершена ли задача."""
         return self.status == TaskStatus.COMPLETED
-    
+
     @property
     def is_pending(self) -> bool:
-        """Проверка, ожидает ли задача выполнения."""
         return self.status == TaskStatus.PENDING
-    
+
+    @property
+    def is_in_progress(self) -> bool:
+        return self.status == TaskStatus.IN_PROGRESS
+
     @property
     def age_seconds(self) -> float:
-        """Возраст задачи в секундах (сколько прошло с создания)."""
         if self.created_at:
-            delta = datetime.now() - self.created_at
-            return delta.total_seconds()
+            return (datetime.now() - self.created_at).total_seconds()
         return 0.0
-    
+
+    @property
+    def age_formatted(self) -> str:
+        seconds = self.age_seconds
+        if seconds < 60:
+            return f"{seconds:.0f} сек"
+        if seconds < 3600:
+            return f"{seconds / 60:.0f} мин"
+        return f"{seconds / 3600:.1f} ч"
+
+    @property
+    def is_urgent(self) -> bool:
+        return self.priority in (TaskPriority.HIGH, TaskPriority.CRITICAL)
+
+
     def to_dict(self) -> dict[str, Any]:
-        """
-        Преобразовать задачу в словарь.
-        
-        Используется для сериализации в JSON, сохранения в БД и т.д.
-        
-        Returns:
-            dict[str, Any]: Словарь с данными задачи
-        """
-        result = asdict(self)
-        # Преобразуем специальные типы в сериализуемые
-        result['priority'] = self.priority.value
-        result['status'] = self.status.value
-        result['created_at'] = self.created_at.isoformat() if self.created_at else None
-        return result
-    
+        return {
+            'id': self._id,
+            'description': self._get_description_value(),
+            'priority': self._priority.value,
+            'status': self._status.value,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'tags': self.tags,
+            'metadata': self.metadata,
+        }
+
     def to_json(self) -> str:
-        """
-        Преобразовать задачу в JSON-строку.
-        
-        Returns:
-            str: JSON-представление задачи
-        """
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
-    
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'Task':
-        """
-        Создать задачу из словаря.
-        
-        Args:
-            data: Словарь с данными задачи
-            
-        Returns:
-            Task: Объект задачи
-        """
-        # Копируем словарь, чтобы не изменять оригинал
-        task_data = data.copy()
-        
-        # Преобразуем строки обратно в объекты
-        if 'created_at' in task_data and isinstance(task_data['created_at'], str):
+        """Создаёт задачу из словаря с обработкой ошибок."""
+        try:
+            # Валидация обязательных полей
+            if 'id' not in data:
+                raise KeyError("Отсутствует обязательное поле 'id'")
+            if 'description' not in data:
+                raise KeyError("Отсутствует обязательное поле 'description'")
+
+            task_id = data['id']
+            description = data['description']
+
+            # Преобразование created_at
+            created_at = None
+            if data.get('created_at'):
+                try:
+                    created_at = datetime.fromisoformat(data['created_at'])
+                except ValueError as e:
+                    logger.warning(f"Некорректный формат даты: {data['created_at']}, будет установлено текущее время")
+                    created_at = None
+
+            # Преобразование priority
+            priority_raw = data.get('priority', 1)
             try:
-                task_data['created_at'] = datetime.fromisoformat(task_data['created_at'])
-            except ValueError:
-                task_data['created_at'] = None
-        
-        if 'priority' in task_data:
-            task_data['priority'] = TaskPriority(task_data['priority'])
-        
-        if 'status' in task_data:
-            task_data['status'] = TaskStatus(task_data['status'])
-        
-        return cls(**task_data)
-    
+                priority = TaskPriority(priority_raw)
+            except ValueError as e:
+                logger.warning(f"Некорректное значение приоритета {priority_raw}, используется LOW")
+                priority = TaskPriority.LOW
+
+            # Преобразование status
+            status_raw = data.get('status', 1)
+            try:
+                status = TaskStatus(status_raw)
+            except ValueError as e:
+                logger.warning(f"Некорректное значение статуса {status_raw}, используется PENDING")
+                status = TaskStatus.PENDING
+
+            return cls(
+                id=task_id,
+                description=description,
+                priority=priority,
+                status=status,
+                created_at=created_at,
+                tags=data.get('tags', []),
+                metadata=data.get('metadata', {})
+            )
+        except (KeyError, TypeError, ValueError) as e:
+            logger.error(f"Ошибка создания задачи из словаря {data}: {e}")
+            raise
+
     @classmethod
     def from_json(cls, json_str: str) -> 'Task':
-        """
-        Создать задачу из JSON-строки.
-        
-        Args:
-            json_str: JSON-строка с данными задачи
-            
-        Returns:
-            Task: Объект задачи
-        """
-        data = json.loads(json_str)
-        return cls.from_dict(data)
-    
+        try:
+            data = json.loads(json_str)
+            return cls.from_dict(data)
+        except json.JSONDecodeError as e:
+            logger.error(f"Ошибка разбора JSON: {e}")
+            raise
+
+
     def __str__(self) -> str:
-        """Краткое строковое представление для пользователя."""
-        return (f"Task[{self.id}]: {self.description[:50]}... "
-                f"[{self.priority}] [{self.status}]")
-    
+        return f"Task[{self._id}]: {self._get_description_value()[:50]}... [{self._priority.name}]"
+
     def __repr__(self) -> str:
-        """Подробное представление для отладки."""
-        return (f"Task(id={self.id}, "
-                f"desc='{self.description[:20]}...', "
-                f"priority={self.priority.name}, "
-                f"status={self.status.name})")
-    
+        return (f"Task(id={self._id}, desc='{self._get_description_value()[:20]}...', "
+                f"priority={self._priority.name}, status={self._status.name})")
+
     def __hash__(self) -> int:
-        """Хэш для использования в множествах и как ключи словарей."""
-        return hash((self.id, self.created_at))
-    
+        return hash(self._id)
+
     def __eq__(self, other: Any) -> bool:
-        """Сравнение задач (по ID и времени создания)."""
         if not isinstance(other, Task):
             return False
-        result = self.id == other.id and self.created_at == other.created_at
-        un = '' if result else "un"
-        logger.debug(f"Task {self.id} {un}equals task {other.id}")
-        return result
+        return self._id == other._id
 
 
 class TaskCollection:
-    """
-    Коллекция задач с удобными методами для работы.
-    
-    Этот класс не обязателен, но показывает, как можно организовать
-    работу с группами задач.
-    """
-    
+    """Коллекция задач с обработкой ошибок."""
+
     def __init__(self, tasks: Optional[list[Task]] = None):
-        """
-        Инициализация коллекции.
-        
-        Args:
-            tasks: Начальный список задач
-        """
         self._tasks: list[Task] = tasks or []
         self._tasks_by_id: dict[int, Task] = {t.id: t for t in self._tasks}
-    
+
     def add(self, task: Task) -> None:
-        """Добавить задачу в коллекцию."""
         if task.id in self._tasks_by_id:
+            logger.warning(f"Попытка добавить дубликат задачи с ID {task.id}")
             raise ValueError(f"Задача с ID {task.id} уже существует")
         self._tasks.append(task)
         self._tasks_by_id[task.id] = task
-    
+        logger.debug(f"Задача {task.id} добавлена в коллекцию")
+
     def remove(self, task_id: int) -> None:
-        """Удалить задачу по ID."""
         if task_id not in self._tasks_by_id:
+            logger.error(f"Попытка удалить несуществующую задачу с ID {task_id}")
             raise KeyError(f"Задача с ID {task_id} не найдена")
         task = self._tasks_by_id.pop(task_id)
         self._tasks.remove(task)
-    
+        logger.debug(f"Задача {task_id} удалена из коллекции")
+
     def get(self, task_id: int) -> Optional[Task]:
-        """Получить задачу по ID."""
         return self._tasks_by_id.get(task_id)
-    
+
     def get_all(self) -> list[Task]:
-        """Получить все задачи."""
         return self._tasks.copy()
-    
+
     def filter(self, **criteria) -> list[Task]:
         """
-        Отфильтровать задачи по критериям.
-        
-        Пример:
-            tasks.filter(priority=TaskPriority.HIGH, status=TaskStatus.PENDING)
+        Фильтрация задач по критериям.
+        Пример: filter(priority=TaskPriority.HIGH, status=TaskStatus.PENDING)
         """
         result = self._tasks.copy()
         for key, value in criteria.items():
+            # Проверяем, существует ли атрибут у Task
+            if not hasattr(Task, key) and key not in ('priority', 'status', 'description', 'id'):
+                logger.warning(f"Неизвестный критерий фильтрации: {key}")
+                continue
             result = [t for t in result if getattr(t, key, None) == value]
+        logger.debug(f"Фильтрация по {criteria} вернула {len(result)} задач")
         return result
-    
+
     def __len__(self) -> int:
-        """Количество задач в коллекции."""
         return len(self._tasks)
-    
+
     def __iter__(self):
-        """Итерация по задачам."""
         return iter(self._tasks)
-    
+
     def __contains__(self, task_id: int) -> bool:
-        """Проверка наличия задачи по ID."""
         return task_id in self._tasks_by_id
 
-
+    def __getitem__(self, task_id: int) -> Task:
+        """Позволяет получать задачу по ID через квадратные скобки."""
+        task = self.get(task_id)
+        if task is None:
+            raise KeyError(f"Задача с ID {task_id} не найдена")
+        return task
