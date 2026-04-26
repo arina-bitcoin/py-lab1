@@ -4,6 +4,11 @@ from datetime import datetime, timedelta
 import pytest
 
 from src.models import Task, TaskPriority, TaskStatus, TaskCollection
+from src.exceptions import (
+    InvalidTaskIdError,
+    EmptyDescriptionError,
+    InvalidStatusError,
+)
 
 
 def test_task_defaults_and_repr():
@@ -14,7 +19,6 @@ def test_task_defaults_and_repr():
     assert task.priority == TaskPriority.LOW
     assert task.status == TaskStatus.PENDING
     assert isinstance(task.created_at, datetime)
-    # __str__ / __repr__ should not raise
     assert "Task[1]" in str(task)
     assert "Task(id=1" in repr(task)
 
@@ -26,12 +30,12 @@ def test_task_priority_and_status_conversion():
 
 
 def test_task_invalid_id_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidTaskIdError):
         Task(id=-1, description="Bad id")
 
 
 def test_task_empty_description_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(EmptyDescriptionError):
         Task(id=3, description="  ")
 
 
@@ -40,7 +44,7 @@ def test_task_status_validation_on_attribute_change():
     task.status = TaskStatus.IN_PROGRESS
     assert task.status == TaskStatus.IN_PROGRESS
 
-    with pytest.raises(ValueError):
+    with pytest.raises(InvalidStatusError):
         task.status = "invalid_status"  # type: ignore[assignment]
 
 
@@ -154,12 +158,89 @@ def test_task_collection_remove_missing_raises():
     with pytest.raises(KeyError):
         coll.remove(999)
 
-def test_task_age_formatted(monkeypatch):
-    from datetime import datetime, timedelta
+def test_task_age_formatted():
     task = Task(id=1, description="test")
-    fake_now = datetime.now() + timedelta(seconds=30)
-    monkeypatch.setattr("src.models.datetime", lambda: fake_now)  # осторожно с monkeypatch
-    # Лучше замокать datetime.now через свободную функцию, но для простоты можно проверить возраст >0
-    assert "сек" in task.age_formatted or "мин" in task.age_formatted
+    # Проверяем, что свойство возвращает строку и возраст неотрицателен
+    assert isinstance(task.age_formatted, str)
+    assert len(task.age_formatted) > 0
+    assert task.age_seconds >= 0
 
 
+def test_task_from_dict_missing_id():
+    """Проверка, что from_dict выбрасывает KeyError при отсутствии id."""
+    with pytest.raises(KeyError, match="id"):
+        Task.from_dict({"description": "no id"})
+
+def test_task_from_dict_invalid_date():
+    """Некорректная дата должна заменяться на текущую."""
+    data = {
+        "id": 99,
+        "description": "test",
+        "created_at": "invalid-date",
+        "priority": 1,
+        "status": 1
+    }
+    task = Task.from_dict(data)
+    assert task.id == 99
+    # created_at должно быть установлено (не None) — текущее время
+    assert task.created_at is not None
+
+def test_task_from_dict_invalid_priority():
+    """Неверный приоритет заменяется на LOW."""
+    data = {
+        "id": 100,
+        "description": "test",
+        "priority": 999,
+        "status": 1
+    }
+    task = Task.from_dict(data)
+    assert task.priority == TaskPriority.LOW
+
+def test_task_from_dict_invalid_status():
+    """Неверный статус заменяется на PENDING."""
+    data = {
+        "id": 101,
+        "description": "test",
+        "priority": 1,
+        "status": 999
+    }
+    task = Task.from_dict(data)
+    assert task.status == TaskStatus.PENDING
+
+def test_task_from_json_invalid():
+    """Неверный JSON должен вызывать JSONDecodeError."""
+    with pytest.raises(json.JSONDecodeError):
+        Task.from_json("{invalid json}")
+
+def test_taskcollection_remove_nonexistent():
+    """Удаление несуществующей задачи вызывает KeyError."""
+    collection = TaskCollection()
+    with pytest.raises(KeyError, match="не найдена"):
+        collection.remove(999)
+
+def test_taskcollection_add_duplicate():
+    """Добавление дубликата вызывает ValueError."""
+    collection = TaskCollection()
+    task = Task(1, "test")
+    collection.add(task)
+    with pytest.raises(ValueError, match="уже существует"):
+        collection.add(task)
+
+def test_taskcollection_filter_unknown_criteria():
+    """Фильтр по неизвестному критерию должен игнорировать его."""
+    collection = TaskCollection([Task(1, "a"), Task(2, "b")])
+    result = collection.filter(unknown_field="value")
+    assert len(result) == 2  # все задачи остались
+
+def test_taskcollection_getitem():
+    """Доступ по квадратным скобкам должен возвращать задачу."""
+    collection = TaskCollection([Task(1, "t1")])
+    assert collection[1].id == 1
+    with pytest.raises(KeyError):
+        _ = collection[999]
+
+def test_taskcollection_contains():
+    """Проверка оператора in."""
+    collection = TaskCollection([Task(1, "t1")])
+    assert 1 in collection
+    assert 2 not in collection

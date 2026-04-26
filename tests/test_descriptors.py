@@ -8,7 +8,7 @@ from src.exceptions import (
     EmptyDescriptionError,
     ImmutableAttributeError,
 )
-
+from src.descriptors import ReadOnlyIdDescriptor, ValidatedStringDescriptor
 
 class TestReadOnlyIdDescriptor:
     """Тесты для read-only ID дескриптора."""
@@ -32,7 +32,7 @@ class TestReadOnlyIdDescriptor:
     def test_id_cannot_be_changed(self):
         """Тест: ID нельзя изменить после создания."""
         task = Task(id=1, description="Test")
-        with pytest.raises(ImmutableAttributeError, match="невозможно изменить"):
+        with pytest.raises(ImmutableAttributeError, match="Невозможно изменить"):
             task.id = 2
     
     def test_id_cannot_be_deleted(self):
@@ -220,3 +220,35 @@ class TestTaskCollection:
         high_tasks = collection.filter(priority=TaskPriority.HIGH)
         assert len(high_tasks) == 1
         assert high_tasks[0].id == 2
+
+def test_readonly_descriptor_class_access():
+    """Доступ к дескриптору через класс должен возвращать сам дескриптор."""
+    assert isinstance(Task.id, ReadOnlyIdDescriptor)
+
+def test_non_data_descriptor_overridden_by_instance():
+    """Проверка, что non-data дескриптор переопределяется атрибутом экземпляра."""
+    task = Task(1, "original")
+    assert task.description == "original"      # через дескриптор
+    task.description = "overridden"
+    assert task.description == "overridden"    # через __dict__
+    # удаляем атрибут экземпляра
+    del task.description
+    assert task.description == "original"      # снова через дескриптор
+
+def test_validated_string_descriptor():
+    """Тест обобщённого строкового дескриптора (если он используется)."""
+    # Если ValidatedStringDescriptor не используется в Task, можно создать тестовый класс
+    from src.descriptors import ValidatedStringDescriptor
+    class TestModel:
+        name = ValidatedStringDescriptor("name", min_length=1, max_length=10)
+    obj = TestModel()
+    obj.name = "John"
+    assert obj.name == "John"
+    with pytest.raises(EmptyDescriptionError):
+        obj.name = ""
+    with pytest.raises(EmptyDescriptionError):
+        obj.name = "  "
+    with pytest.raises(EmptyDescriptionError):
+        obj.name = "Too long name"
+    with pytest.raises(AttributeError):
+        del obj.name

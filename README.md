@@ -62,7 +62,6 @@ py-lab1/
 | `pytest.ini` | Конфиг pytest и coverage |
 | `.coveragerc` | Настройки покрытия кода |
 | `requirements.txt` | Зависимости проекта |
----
 
 ## Лабораторная работа №1. Источники задач и контракты (duck typing)
 
