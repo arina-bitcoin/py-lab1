@@ -18,22 +18,18 @@ def setup_logging(
         format_string: Формат сообщений (если None - используется стандартный)
     """
     
-    # Формат по умолчанию: время - имя модуля - уровень - сообщение
     if format_string is None:
         format_string = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     
-    # Формат времени
     date_format = '%Y-%m-%d %H:%M:%S'
     
-    # Базовые настройки
     handlers = [logging.StreamHandler(sys.stdout)]
-    
-    # Если указан файл, добавляем файловый обработчик
+
     if log_file:
         log_file.parent.mkdir(parents=True, exist_ok=True)
         handlers.append(logging.FileHandler(log_file, encoding='utf-8'))
     
-    # Настраиваем корневой логгер (force=True с Python 3.8 — переприменить при повторном вызове)
+    # Корневой логгер 
     logging.basicConfig(
         level=level,
         format=format_string,

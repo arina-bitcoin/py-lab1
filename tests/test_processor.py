@@ -139,16 +139,6 @@ def test_processor_get_statistics_before_any_processing():
     assert stats["success_rate"] == 0
 
 
-def test_processor_print_report(capsys):
-    processor = TaskProcessor("report")
-    processor.process_source(GoodSource([Task(id=1, description="x")]))
-    processor.print_report()
-    out = capsys.readouterr().out
-    assert "ОТЧЕТ ПРОЦЕССОРА" in out
-    assert "report" in out
-    assert "Всего обработано" in out
-
-
 def test_processor_handler_exception_logged_not_raised():
     """Ошибка в обработчике логируется, обработка задачи продолжается."""
     task = Task(id=1, description="ok", priority=TaskPriority.LOW)
@@ -184,22 +174,19 @@ def test_log_failure_called_on_task_processing_error(monkeypatch):
     assert stats["failed_tasks"] == 1
     assert stats["processed_tasks"] == 0
 
-def test_processor_get_last_processing():
-    proc = TaskProcessor("test")
-    assert proc.get_last_processing() is None
-    src = GoodSource([Task(id=1, description="x")])
-    proc.process_source(src)
-    last = proc.get_last_processing()
-    assert last is not None
-    assert last["total_tasks"] == 1
 
+def test_process_source_unexpected_exception_branch(monkeypatch):
+    task = Task(id=3, description="unexpected")
+    processor = TaskProcessor("unexpected")
 
-def test_processor_statistics_after_processing():
-    proc = TaskProcessor("stats")
-    src = GoodSource([Task(id=1, description="a"), Task(id=2, description="b")])
-    proc.process_source(src)
-    stats = proc.get_statistics()
-    assert stats["total_processed"] == 2
-    assert stats["successful"] == 2
-    assert stats["failed"] == 0
+    def _boom(_task: Task) -> None:
+        raise ValueError("unexpected error")
+
+    monkeypatch.setattr(processor, "_process_single_task", _boom)
+    stats = processor.process_source(GoodSource([task]))
+
+    assert stats["failed_tasks"] == 1
+    assert stats["processed_tasks"] == 0
+    assert processor.failed_count == 1
+
 

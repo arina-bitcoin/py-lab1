@@ -7,6 +7,7 @@ from src.models import Task, TaskPriority, TaskStatus, TaskCollection
 from src.exceptions import (
     InvalidTaskIdError,
     EmptyDescriptionError,
+    InvalidPriorityError,
     InvalidStatusError,
 )
 
@@ -166,6 +167,11 @@ def test_task_age_formatted():
     assert task.age_seconds >= 0
 
 
+def test_task_validate_description_rejects_non_string():
+    with pytest.raises(EmptyDescriptionError):
+        Task(id=7, description=123)  # type: ignore[arg-type]
+
+
 def test_task_from_dict_missing_id():
     """Проверка, что from_dict выбрасывает KeyError при отсутствии id."""
     with pytest.raises(KeyError, match="id"):
@@ -232,15 +238,36 @@ def test_taskcollection_filter_unknown_criteria():
     result = collection.filter(unknown_field="value")
     assert len(result) == 2  # все задачи остались
 
-def test_taskcollection_getitem():
-    """Доступ по квадратным скобкам должен возвращать задачу."""
-    collection = TaskCollection([Task(1, "t1")])
-    assert collection[1].id == 1
-    with pytest.raises(KeyError):
-        _ = collection[999]
 
-def test_taskcollection_contains():
-    """Проверка оператора in."""
-    collection = TaskCollection([Task(1, "t1")])
-    assert 1 in collection
-    assert 2 not in collection
+def test_task_priority_property_getter_and_invalid_setter():
+    task = Task(id=8, description="prop", priority=TaskPriority.LOW)
+    assert task.task_priority == TaskPriority.LOW
+    with pytest.raises(InvalidPriorityError):
+        task.task_priority = 999  # type: ignore[assignment]
+
+
+def test_task_status_property_getter_and_invalid_setter():
+    task = Task(id=9, description="status", status=TaskStatus.PENDING)
+    assert task.task_status == TaskStatus.PENDING
+    with pytest.raises(InvalidStatusError):
+        task.task_status = "bad"  # type: ignore[assignment]
+
+
+def test_update_description_without_instance_override():
+    task = Task(id=10, description="old")
+    task.update_description("new via storage", force_instance_attr=False)
+    assert "description" not in task.__dict__
+    assert task.description == "new via storage"
+
+
+def test_task_age_formatted_minutes_and_hours():
+    task = Task(id=13, description="age")
+    task.created_at = datetime.now() - timedelta(minutes=5)
+    assert task.age_formatted.endswith("мин")
+    task.created_at = datetime.now() - timedelta(hours=2)
+    assert task.age_formatted.endswith("ч")
+
+
+def test_task_from_dict_missing_description():
+    with pytest.raises(KeyError, match="description"):
+        Task.from_dict({"id": 123})

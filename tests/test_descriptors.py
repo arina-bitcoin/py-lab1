@@ -111,6 +111,12 @@ class TestValidatedStatusDescriptor:
             task.status = 99
         assert task.status == TaskStatus.PENDING
 
+    def test_status_cannot_be_deleted(self):
+        """Тест: удаление статуса запрещено data-дескриптором."""
+        task = Task(id=1, description="Test")
+        with pytest.raises(InvalidStatusError, match="Невозможно удалить статус"):
+            del task.status
+
 
 class TestNonDataDescriptionDescriptor:
     """Тесты для non-data дескриптора описания."""
@@ -252,3 +258,25 @@ def test_validated_string_descriptor():
         obj.name = "Too long name"
     with pytest.raises(AttributeError):
         del obj.name
+
+
+def test_validated_priority_descriptor_delete_raises():
+    task = Task(id=42, description="P")
+    with pytest.raises(InvalidPriorityError, match="Невозможно удалить приоритет"):
+        del task.priority
+
+
+def test_validated_string_descriptor_type_and_none_validation():
+    class TestModel:
+        name = ValidatedStringDescriptor("name", min_length=2, max_length=10)
+
+    # Доступ через класс возвращает сам дескриптор
+    assert isinstance(TestModel.name, ValidatedStringDescriptor)
+
+    obj = TestModel()
+    with pytest.raises(EmptyDescriptionError, match="не может быть None"):
+        obj.name = None
+    with pytest.raises(TypeError, match="должен быть строкой"):
+        obj.name = 123
+    with pytest.raises(EmptyDescriptionError, match="слишком короткий"):
+        obj.name = "A"
